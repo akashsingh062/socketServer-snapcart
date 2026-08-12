@@ -24,20 +24,25 @@ io.on('connection', (socket) => {
         },{withCredentials:true})
     })
 
-    socket.on("update-location",async({userId, latitude, longitude})=>{
+    socket.on("update-location", async ({ userId, latitude, longitude }) => {
         try {
+            console.log(`📍 [Socket] Live location broadcast for user ${userId}:`, latitude, longitude);
+            io.emit("update-location", { userId, latitude, longitude });
+
             const location = {
                 type: "Point",
                 coordinates: [longitude, latitude],
             };
-            await axios.post(`${process.env.NEXT_BASE_URL}/api/auth/socket/update-location`,{
-                userId,
-                location
-            },{withCredentials:true})
+            if (process.env.NEXT_BASE_URL) {
+                await axios.post(`${process.env.NEXT_BASE_URL}/api/auth/socket/update-location`, {
+                    userId,
+                    location
+                }, { withCredentials: true }).catch(() => {});
+            }
         } catch (error) {
-            console.log(error)
+            console.log(error);
         }
-    })
+    });
 
     socket.on('disconnect', () => {
         console.log('A user disconnected', socket.id);
