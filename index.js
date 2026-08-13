@@ -44,8 +44,20 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('disconnect', () => {
-        console.log('A user disconnected', socket.id);
+    socket.on("join-room", (roomId) => {
+        if (roomId) {
+            socket.join(roomId);
+            console.log(`💬 [Socket] Socket ${socket.id} joined chat room ${roomId}`);
+        }
+    });
+
+    socket.on("send-message", (data) => {
+        console.log(`💬 [Socket] Message in room ${data.roomId}:`, data?.text);
+        if (data && data.roomId) {
+            socket.to(data.roomId).emit("receive-message", data);
+        } else if (data) {
+            socket.broadcast.emit("receive-message", data);
+        }
     });
 })
 
