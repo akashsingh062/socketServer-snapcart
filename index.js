@@ -3,20 +3,26 @@ import http from "http";
 import { Server } from "socket.io";
 import dotenv from "dotenv";
 import axios from "axios";
+import cors from "cors";
 
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
 
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 const io = new Server(server, {
   cors: {
-    origin: process.env.NEXT_BASE_URL || "http://localhost:3000",
+    origin: (origin, callback) => {
+      // Allow all origins (localhost, vercel, mobile, etc.)
+      callback(null, true);
+    },
     methods: ["GET", "POST"],
     credentials: true,
   },
+  transports: ["websocket", "polling"],
 });
 
 io.on("connection", (socket) => {
@@ -25,9 +31,10 @@ io.on("connection", (socket) => {
   socket.on("identity", async (userId) => {
     console.log(`👤 [Trigger: Identity] Socket: ${socket.id} -> User: ${userId}`);
     try {
-      if (userId && process.env.NEXT_BASE_URL) {
+      const baseUrl = process.env.NEXT_BASE_URL || "https://snapcart-d.vercel.app";
+      if (userId && baseUrl) {
         await axios.post(
-          `${process.env.NEXT_BASE_URL}/api/auth/socket/connect`,
+          `${baseUrl}/api/auth/socket/connect`,
           { userId, socketId: socket.id },
           { withCredentials: true }
         );
@@ -48,10 +55,11 @@ io.on("connection", (socket) => {
         coordinates: [longitude, latitude],
       };
 
-      if (process.env.NEXT_BASE_URL) {
+      const baseUrl = process.env.NEXT_BASE_URL || "https://snapcart-d.vercel.app";
+      if (baseUrl) {
         await axios
           .post(
-            `${process.env.NEXT_BASE_URL}/api/auth/socket/update-location`,
+            `${baseUrl}/api/auth/socket/update-location`,
             { userId, location },
             { withCredentials: true }
           )
@@ -107,8 +115,12 @@ app.post("/notify", (req, res) => {
   }
 });
 
+app.get("/", (req, res) => {
+  res.json({ status: "ok", activeSockets: io.engine.clientsCount });
+});
+
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
   console.log(`🚀 [Socket Server] Listening on port ${PORT}`);
-  console.log(`🌐 [CORS Origin] Allowed: ${process.env.NEXT_BASE_URL || "http://localhost:3000"}`);
+  console.log(`🌐 [CORS Origin] Allowed: All origins (localhost & Vercel)`);
 });
