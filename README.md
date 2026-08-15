@@ -1,151 +1,217 @@
 <div align="center">
 
-# ⚡ SnapCart — Real-Time WebSocket Microservice
+# ⚡ SnapCart Socket Server
 
-[![Node.js](https://img.shields.io/badge/Node.js-v20+-green?style=for-the-badge&logo=node.js)](https://nodejs.org/)
-[![Express](https://img.shields.io/badge/Express-5.x-lightgrey?style=for-the-badge&logo=express)](https://expressjs.com/)
-[![Socket.io](https://img.shields.io/badge/Socket.io-4.8.x-black?style=for-the-badge&logo=socket.io)](https://socket.io/)
-[![CORS](https://img.shields.io/badge/CORS-Configured-orange?style=for-the-badge)](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS)
+### Real-Time Event Relay Microservice
 
-The dedicated, ultra-low latency real-time communication server powering **SnapCart**'s live GPS delivery tracking, buyer-driver chat messaging, and instantaneous event push notifications.
+[![Live](https://img.shields.io/badge/🌐_Live-socketserver--snapcart.onrender.com-blueviolet?style=for-the-badge)](https://socketserver-snapcart.onrender.com)
+[![SnapCart App](https://img.shields.io/badge/🛒_SnapCart-snapcart--d.vercel.app-emerald?style=for-the-badge)](https://snapcart-d.vercel.app)
 
-[Features](#-key-features) • [Architecture](#-how-it-works) • [Event Reference](#-websocket-event-reference) • [HTTP API](#-http-webhook-api) • [Getting Started](#-getting-started)
+[![Express](https://img.shields.io/badge/Express_5-000000?style=flat-square&logo=express)](https://expressjs.com)
+[![Socket.IO](https://img.shields.io/badge/Socket.IO_4-010101?style=flat-square&logo=socket.io)](https://socket.io)
+[![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
+
+---
+
+A lightweight **Express + Socket.IO** microservice that powers all real-time communication in the [SnapCart](https://snapcart-d.vercel.app) grocery delivery platform — including live order notifications, GPS location broadcasting, and in-app delivery chat.
 
 </div>
 
 ---
 
-## ⚡ Key Features
+## 🎯 Purpose
 
-- **📍 High-Frequency Live GPS Location Streaming**: Relays real-time latitude/longitude coordinates between delivery riders and customer live maps.
-- **💬 Direct Buyer-Driver Chat Rooms**: Supports dynamic room-based message routing (`join-room`, `send-message`, `receive-message`).
-- **🔔 HTTP `/notify` Webhook Endpoint**: Allows the Next.js API server to push real-time events (order placed, driver assigned, order status changed) to connected clients without keeping socket instances on serverless functions.
-- **🔗 Client Identity & Session Sync**: Associates incoming socket IDs with authenticated user IDs on the Next.js backend.
-- **🛡️ Secure CORS & Credentials**: Built-in credentialed CORS support configured for Next.js web clients.
+Next.js serverless API routes on Vercel cannot maintain persistent WebSocket connections. This dedicated Socket Server acts as the **real-time event relay layer** between:
+
+- **Customers** tracking their delivery in real-time
+- **Admins** receiving live order notifications
+- **Delivery Partners** broadcasting GPS location and chatting with customers
+
+The Next.js server communicates with this service via HTTP `POST /notify` requests, which are then relayed as WebSocket events to connected clients.
 
 ---
 
-## 🏛 How It Works
+## 🏗️ Architecture
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Customer as 👤 Customer
-    actor Rider as 🛵 Delivery Rider
-    participant Socket as ⚡ Socket Server (:4000)
-    participant NextApp as 🌐 Next.js Backend (:3000)
-
-    Note over Customer,Socket: 1. Identity & Connect
-    Customer->>Socket: connect + emit("identity", userId)
-    Socket->>NextApp: POST /api/auth/socket/connect (bind socketId)
-
-    Note over Rider,Socket: 2. Real-time Location Updates
-    Rider->>Socket: emit("update-location", { userId, latitude, longitude })
-    Socket->>NextApp: POST /api/auth/socket/update-location (persist to DB)
-    Socket-->>Customer: broadcast("update-location", { userId, latitude, longitude })
-
-    Note over Customer,Rider: 3. Instant Chat Messaging
-    Customer->>Socket: emit("join-room", roomId)
-    Rider->>Socket: emit("join-room", roomId)
-    Customer->>Socket: emit("send-message", { roomId, message, senderId })
-    Socket-->>Rider: emit("receive-message", data)
-
-    Note over NextApp,Customer: 4. Server-Triggered Notifications
-    NextApp->>Socket: POST /notify { event: "order-status-update", data, socketId }
-    Socket-->>Customer: emit("order-status-update", data)
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    CLIENT BROWSERS                           │
+│                                                              │
+│  Customer          Admin            Delivery Partner          │
+│  (track order,     (new order       (share GPS,              │
+│   chat)             alerts)          accept assignments)     │
+│      │                │                    │                  │
+│      └────────────────┼────────────────────┘                  │
+│                       │                                       │
+│               Socket.IO Client                                │
+│        (WebSocket + Polling Fallback)                         │
+└───────────────────────┬──────────────────────────────────────┘
+                        │
+                        ▼
+┌───────────────────────────────────────────────────────────────┐
+│              THIS SOCKET SERVER (Render)                      │
+│                                                               │
+│  ┌─────────────────────────────────┐                          │
+│  │     Socket.IO Event Handlers    │                          │
+│  │                                 │                          │
+│  │  "identity"                     │  → Syncs user's socketId │
+│  │  "update-location"              │  → Broadcasts GPS coords │
+│  │  "join-room"                    │  → Joins chat room       │
+│  │  "send-message"                 │  → Relays to chat room   │
+│  │  "disconnect"                   │  → Cleanup               │
+│  └─────────────────────────────────┘                          │
+│                                                               │
+│  ┌─────────────────────────────────┐                          │
+│  │     HTTP REST Endpoints         │                          │
+│  │                                 │                          │
+│  │  POST /notify                   │  → Emit event to socket  │
+│  │       { event, data, socketId } │    or broadcast to all   │
+│  │                                 │                          │
+│  │  GET /                          │  → Health check +        │
+│  │       { status, activeSockets } │    active connection cnt │
+│  └─────────────────────────────────┘                          │
+└────────────────────────┬──────────────────────────────────────┘
+                         │ HTTP callbacks
+                         ▼
+┌────────────────────────────────────────────────────────────────┐
+│              NEXT.JS SERVER (Vercel)                           │
+│                                                                │
+│  /api/auth/socket/connect        ← Persist socketId to DB     │
+│  /api/auth/socket/update-location ← Persist GeoJSON to DB    │
+│                                                                │
+│  emitEventHandler.ts → POST /notify to this server            │
+│  (called from order creation, status updates, assignments)    │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 📡 WebSocket Event Reference
+## 📡 Socket Events
 
-### Client-to-Server (`socket.on`)
+### Client → Server
 
 | Event | Payload | Description |
-|---|---|---|
-| `identity` | `userId: string` | Registers the socket with the user's account and updates the backend. |
-| `update-location` | `{ userId: string, latitude: number, longitude: number }` | Emits live GPS coordinates to tracking maps and updates MongoDB geospatial coordinates. |
-| `join-room` | `roomId: string` | Subscribes the socket connection to a dedicated chat room. |
-| `send-message` | `{ roomId: string, ...messageData }` | Relays an in-app message to room participants or broadcasts to listeners. |
+|-------|---------|-------------|
+| `identity` | `userId: string` | Associates the socket connection with a MongoDB user ID. The server calls the Next.js API to persist the `socketId` to the user document. |
+| `update-location` | `{ userId, latitude, longitude }` | Delivery partner's GPS coordinates. Broadcast to all clients and persisted via Next.js API. |
+| `join-room` | `roomId: string` | Joins a chat room (for customer ↔ delivery partner messaging). |
+| `send-message` | `{ roomId, senderId, text, time }` | Sends a chat message. Relayed to all other members of the room. |
 
-### Server-to-Client (`socket.emit` / `io.emit`)
+### Server → Client
 
-| Event | Payload | Target | Description |
-|---|---|---|---|
-| `update-location` | `{ userId, latitude, longitude }` | All clients | Streams live agent location to map views. |
-| `receive-message` | `MessageObject` | Room members | Delivers new chat messages in real time. |
-| `new-order` | `OrderObject` | Admins | Notifies admins when a new order is submitted. |
-| `new-assignment` | `AssignmentObject` | Delivery Boys | Broadcasts proximity delivery requests to active riders. |
-| `order-status-update` | `{ orderId, status, isPaid }` | Specific / All | Updates order progress badge across portals. |
+| Event | Source | Description |
+|-------|--------|-------------|
+| `update-location` | Broadcast | Delivery partner GPS coordinates for live map tracking. |
+| `receive-message` | Room relay | Incoming chat message from the other party. |
+| `new-order` | HTTP `/notify` | New order placed — triggers admin order list update. |
+| `order-status-update` | HTTP `/notify` | Order status changed — updates customer tracking & admin views. |
+| `delivery-assignment` | HTTP `/notify` | New delivery assignment broadcasted to nearby delivery partners. |
 
 ---
 
-## 🔌 HTTP Webhook API
+## 🔌 HTTP API
 
 ### `POST /notify`
-Enables Next.js server actions and API routes to emit socket events across the network.
 
-**Headers:**
-```http
-Content-Type: application/json
+Emit a socket event from the Next.js server to connected clients.
+
+```json
+// Request body
+{
+  "event": "new-order",           // Required: event name
+  "data": { ... },                // Required: event payload
+  "socketId": "abc123"            // Optional: target specific socket (omit for broadcast)
+}
+
+// Response
+{ "success": true, "message": "Notification sent successfully" }
 ```
 
-**Request Body:**
-```json
-{
-  "event": "order-status-update",
-  "data": {
-    "orderId": "65b1c2d3...",
-    "status": "out_for_delivery"
-  },
-  "socketId": "optional_target_socket_id"
-}
-```
+**Used by Next.js API routes:**
+- Order placement → `new-order` (broadcast)
+- Status update → `order-status-update` (broadcast)
+- Delivery assignment → `delivery-assignment` (targeted to delivery partner's socketId)
 
-**Response:**
+### `GET /`
+
+Health check endpoint.
+
 ```json
-{
-  "success": true,
-  "message": "Notification sent successfully"
-}
+// Response
+{ "status": "ok", "activeSockets": 12 }
 ```
 
 ---
 
 ## 🚀 Getting Started
 
-### 1. Prerequisites
-- **Node.js** v18+ or v20+
-- **npm** or **yarn**
+### Prerequisites
 
-### 2. Installation
+- **Node.js** ≥ 18
+
+### Installation
+
 ```bash
-cd socketServer
+# 1. Clone the repository
+git clone https://github.com/akashsingh062/socketserver-snapcart.git
+cd socketserver-snapcart
+
+# 2. Install dependencies
 npm install
-```
 
-### 3. Environment Variables
-Create a `.env` file in the `socketServer` directory:
+# 3. Configure environment
+cp .env.example .env
+# Edit .env with your values
 
-```env
-PORT=4000
-NEXT_BASE_URL=http://localhost:3000
-```
-
-### 4. Running the Server
-
-**Development mode (with auto-reload):**
-```bash
+# 4. Start the development server
 npm run dev
 ```
 
-**Production mode:**
-```bash
-node index.js
-```
+The server starts on `http://localhost:4000` by default.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `4000` | Server port |
+| `NEXT_BASE_URL` | `https://snapcart-d.vercel.app` | SnapCart Next.js app URL (for identity sync & location persistence callbacks) |
 
 ---
 
-## 👨‍💻 Author
+## 🛠️ Tech Stack
 
-Part of the **[SnapCart Ecosystem](https://github.com/akashsingh062/snapcart)** by **[Akash Singh](https://github.com/akashsingh062)**.
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| **Runtime** | Node.js (ES Modules) | JavaScript runtime |
+| **HTTP Server** | Express 5 | REST endpoints + middleware |
+| **WebSockets** | Socket.IO 4 | Bidirectional real-time communication |
+| **HTTP Client** | Axios | Callbacks to Next.js API |
+| **CORS** | cors | Cross-origin request handling |
+| **Environment** | dotenv | Environment variable loading |
+| **Dev Tools** | nodemon | Auto-restart on file changes |
+
+---
+
+## 📦 Deployment (Render)
+
+1. Create a new **Web Service** on [Render](https://render.com)
+2. Connect your GitHub repository
+3. Configure:
+   - **Build Command:** `npm install`
+   - **Start Command:** `node index.js`
+   - **Environment:** Set `NEXT_BASE_URL` to your Vercel app URL
+4. Update `NEXT_PUBLIC_SOCKET_SERVER` in your SnapCart Vercel environment to point to the Render URL
+
+---
+
+## 📄 License
+
+This project is open source and available under the [MIT License](LICENSE).
+
+---
+
+<div align="center">
+
+**Part of the [SnapCart](https://snapcart-d.vercel.app) ecosystem — Built with ❤️ by [Akash Singh](https://github.com/akashsingh062)**
+
+</div>
