@@ -212,6 +212,6 @@ This project is open source and available under the [MIT License](LICENSE).
 
 <div align="center">
 
-**Part of the [SnapCart](https://snapcart-d.vercel.app) ecosystem — Built with ❤️ by [Akash Singh](https://github.com/akashsingh062)**
+**Part of the [SnapCart](https://snapcart-d.vercel.app) ecosystem — Built by [Akash Singh](https://github.com/akashsingh062)**
 
 </div>
