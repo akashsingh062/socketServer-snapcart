@@ -3,74 +3,93 @@ import http from "http";
 import { Server } from "socket.io";
 import dotenv from "dotenv";
 import axios from "axios";
+
 dotenv.config();
+
 const app = express();
 const server = http.createServer(app);
+
 app.use(express.json());
+
 const io = new Server(server, {
-    cors: {
-        origin: process.env.NEXT_BASE_URL || "http://localhost:3000",
-        methods: ["GET", "POST"],
-        credentials:true
-    }
+  cors: {
+    origin: process.env.NEXT_BASE_URL || "http://localhost:3000",
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
 });
-io.on('connection', (socket) => {
-    console.log('A user connected', socket.id);
-    socket.on("identity",async(userId)=>{
-        console.log(userId)
-        await axios.post(`${process.env.NEXT_BASE_URL}/api/auth/socket/connect`,{
-            userId,
-            socketId:socket.id
-        },{withCredentials:true})
-    })
 
-    socket.on("update-location", async ({ userId, latitude, longitude }) => {
-        try {
-            console.log(`📍 [Socket] Live location broadcast for user ${userId}:`, latitude, longitude);
-            io.emit("update-location", { userId, latitude, longitude });
+io.on("connection", (socket) => {
+  socket.on("identity", async (userId) => {
+    try {
+      if (userId && process.env.NEXT_BASE_URL) {
+        await axios.post(
+          `${process.env.NEXT_BASE_URL}/api/auth/socket/connect`,
+          { userId, socketId: socket.id },
+          { withCredentials: true }
+        );
+      }
+    } catch {
+      // Ignored
+    }
+  });
 
-            const location = {
-                type: "Point",
-                coordinates: [longitude, latitude],
-            };
-            if (process.env.NEXT_BASE_URL) {
-                await axios.post(`${process.env.NEXT_BASE_URL}/api/auth/socket/update-location`, {
-                    userId,
-                    location
-                }, { withCredentials: true }).catch(() => {});
-            }
-        } catch (error) {
-            console.log(error);
-        }
-    });
+  socket.on("update-location", async ({ userId, latitude, longitude }) => {
+    try {
+      io.emit("update-location", { userId, latitude, longitude });
 
-    socket.on("join-room", (roomId) => {
-        if (roomId) {
-            socket.join(roomId);
-            console.log(`💬 [Socket] Socket ${socket.id} joined chat room ${roomId}`);
-        }
-    });
+      const location = {
+        type: "Point",
+        coordinates: [longitude, latitude],
+      };
 
-    socket.on("send-message", (data) => {
-        console.log(`💬 [Socket] Message in room ${data.roomId}:`, data?.text);
-        if (data && data.roomId) {
-            socket.to(data.roomId).emit("receive-message", data);
-        } else if (data) {
-            socket.broadcast.emit("receive-message", data);
-        }
-    });
-})
+      if (process.env.NEXT_BASE_URL) {
+        await axios
+          .post(
+            `${process.env.NEXT_BASE_URL}/api/auth/socket/update-location`,
+            { userId, location },
+            { withCredentials: true }
+          )
+          .catch(() => {});
+      }
+    } catch {
+      // Ignored
+    }
+  });
+
+  socket.on("join-room", (roomId) => {
+    if (roomId) {
+      socket.join(roomId);
+    }
+  });
+
+  socket.on("send-message", (data) => {
+    if (data?.roomId) {
+      socket.to(data.roomId).emit("receive-message", data);
+    } else if (data) {
+      socket.broadcast.emit("receive-message", data);
+    }
+  });
+});
 
 app.post("/notify", (req, res) => {
+  try {
     const { event, data, socketId } = req.body;
-    if (socketId) {
-        io.to(socketId).emit(event, data);
-    } else {
-        io.emit(event, data);
+    if (!event) {
+      return res.status(400).json({ success: false, message: "Event name is required" });
     }
-    return res.status(200).json({ success: true, message: "Notification sent" });
+    if (socketId) {
+      io.to(socketId).emit(event, data);
+    } else {
+      io.emit(event, data);
+    }
+    return res.status(200).json({ success: true, message: "Notification sent successfully" });
+  } catch {
+    return res.status(500).json({ success: false, message: "Failed to send notification" });
+  }
 });
 
-server.listen(process.env.PORT || 4000, () => {
-    console.log('Server is running on port', process.env.PORT || 4000);
+const PORT = process.env.PORT || 4000;
+server.listen(PORT, () => {
+  console.log(`Socket server listening on port ${PORT}`);
 });
